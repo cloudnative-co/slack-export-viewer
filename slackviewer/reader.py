@@ -17,8 +17,13 @@ class Reader(object):
 
     def __init__(self, PATH):
         self._PATH = PATH
+        usr_file = None
+        if os.path.exists(os.path.join(self._PATH, "users.json")):
+            usr_file = "users.json"
+        if os.path.exists(os.path.join(self._PATH, "org_users.json")):
+            usr_file = "org_users.json"
         # TODO: Make sure this works
-        with io.open(os.path.join(self._PATH, "users.json"), encoding="utf8") as f:
+        with io.open(os.path.join(self._PATH, usr_file), encoding="utf8") as f:
             self.__USER_DATA = {u["id"]: User(u) for u in json.load(f)}
 
     ##################
@@ -104,12 +109,55 @@ class Reader(object):
         mpim_data = self._read_from_json("mpims.json")
         mpims = [c for c in mpim_data.values()]
         all_mpim_users = []
-
         for mpim in mpims:
-            mpim_members = {"name": mpim["name"], "users": [self.__USER_DATA[m] for m in mpim["members"]]}
-            all_mpim_users.append(mpim_members)
+            members = []
+            for m in mpim["members"]:
+                if m not in self.__USER_DATA:
+                    usr = self.search_unknown_user(mpim["name"], m)
+                    if usr is None:
+                        continue
+                    self.__USER_DATA[m] = usr
+                members.append(self.__USER_DATA[m])
 
+            mpim_members = {
+                "name": mpim["name"],
+                "users": members
+            }
+            all_mpim_users.append(mpim_members)
         return all_mpim_users
+
+    def search_unknown_user(self, c_name, id):
+        if not os.path.exists(os.path.join(self._PATH, c_name)):
+            return None
+        dir_path = os.path.join(self._PATH, c_name)
+        if not os.path.isdir(dir_path):
+            return None
+
+        for json_file in os.listdir(dir_path):
+            try:
+                with io.open(os.path.join(dir_path, json_file), encoding="utf8") as f:
+                    for data in json.load(f):
+                        if data["user"] != id:
+                            continue
+                        ret = {
+                            "name": data["user_profile"]["name"],
+                            "real_name": data["user_profile"]["real_name"],
+                            "profile": data["user_profile"],
+                            "teams": [
+                                data["team"],
+                                data["user_team"],
+                                data["source_team"]
+                            ]
+                        }
+                        return User(ret)
+            except Exception as e:
+                return None
+        ret = {
+            "name": "Unknown_{}".format(id),
+            "display_name": "Unknown User({})".format(id),
+            "real_name": "Unknown User({})".format(id)
+        }
+        return User(ret)
 
     @staticmethod
     def _extract_time(json):
